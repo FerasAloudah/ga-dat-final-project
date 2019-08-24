@@ -1,85 +1,44 @@
 import pandas as pd
-from pandas_converter import convertToDF
 import json
 
 import random
 from sortedcontainers import SortedList
 import arrow
 
-from cassiopeia.core import Summoner, MatchHistory, Match
+from cassiopeia.core import Summoner, MatchHistory, Match, ChampionMastery
 from cassiopeia.datastores.riotapi.common import APIError
 from cassiopeia import Season, Queue, Patch
+import cassiopeia as cass
 
 import threading
 
 
-def filter_match_history(summoner, patch):
-    end_time = patch.end
+def filter_match_history(summoner, starting_patch, ending_patch):
+    end_time = ending_patch.end
     if end_time is None:
         end_time = arrow.now()
     match_history = MatchHistory(summoner=summoner, seasons={Season.season_9}, queues={
-                                 Queue.ranked_solo_fives}, begin_time=patch.start, end_time=end_time)
+                                 Queue.ranked_solo_fives}, begin_time=starting_patch.start, end_time=end_time)
     return match_history
 
 
-def collect_matches(initial_summoner_name, region, csv_path):
-    print(initial_summoner_name, region, csv_path)
+def get_average_kda(summoner, starting_patch, end_time, champion):
+    match_history = MatchHistory(summoner=summoner, seasons={Season.season_9}, champions={champion}, queues={
+                                 Queue.ranked_solo_fives}, begin_time=starting_patch.start, end_time=end_time)
 
-    try:
-        df = pd.read_csv(csv_path)
-    except:
-        df = pd.DataFrame(columns=['match_id', 'player1_id', 'player1_account_id', 'player1_champion', 'player1_runes',
-                               'player2_id', 'player2_account_id', 'player2_champion', 'player2_runes',
-                               'player3_id', 'player3_account_id', 'player3_champion', 'player3_runes',
-                               'player4_id', 'player4_account_id', 'player4_champion', 'player4_runes',
-                               'player5_id', 'player5_account_id', 'player5_champion', 'player5_runes',
-                               'player6_id', 'player6_account_id', 'player6_champion', 'player6_runes',
-                               'player7_id', 'player7_account_id', 'player7_champion', 'player7_runes',
-                               'player8_id', 'player8_account_id', 'player8_champion', 'player8_runes',
-                               'player9_id', 'player9_account_id', 'player9_champion', 'player9_runes',
-                               'player10_id', 'player10_account_id', 'player10_champion', 'player10_runes', 'won']
-                      )
+    kda = []
+    wins = 0
 
-    summoner = Summoner(name=initial_summoner_name, region=region)
-    patch = Patch.from_str("9.15", region=region)
+    for match in match_history:
+        p = match.participants[summoner.name]
+        kda.append(p.stats.kda)
+        wins += 1 if p.stats.win else 0
 
-    unpulled_summoner_ids = SortedList([summoner.id])
-    pulled_summoner_ids = SortedList()
+    average = 0 if len(kda) == 0 else sum(kda) / len(kda)
+    winrate = 0 if len(kda) == 0 else wins / len(kda)
 
-    unpulled_match_ids = SortedList()
-    pulled_match_ids = SortedList()
+    return round(average, 2), round(winrate, 2)
 
-    while unpulled_summoner_ids:
-        # Get a random summoner from our list of unpulled summoners and pull their match history
-        new_summoner_id = random.choice(unpulled_summoner_ids)
-        new_summoner = Summoner(id=new_summoner_id, region=region)
-        matches = filter_match_history(new_summoner, patch)
-        unpulled_match_ids.update([match.id for match in matches])
-        unpulled_summoner_ids.remove(new_summoner_id)
-        pulled_summoner_ids.add(new_summoner_id)
-
-        while unpulled_match_ids:
-            # Get a random match from our list of matches
-            new_match_id = random.choice(unpulled_match_ids)
-            new_match = Match(id=new_match_id, region=region)
-            match_result = new_match.blue_team.win
-            match = {'match_id': new_match_id}
-            for p in new_match.participants:
-                player = f'player{p.id}'
-                match[f'{player}_id'] = p.summoner.id
-                match[f'{player}_account_id'] = p.summoner.account_id
-                match[f'{player}_champion'] = p.champion.id
-                match[f'{player}_runes'] = p.runes.keystone.name
-                if p.summoner.id not in pulled_summoner_ids and p.summoner.id not in unpulled_summoner_ids:
-                    unpulled_summoner_ids.add(p.summoner.id)
-
-            match['won'] = match_result
-
-            unpulled_match_ids.remove(new_match_id)
-            pulled_match_ids.add(new_match_id)
-            match_series = pd.Series(match)
-            df = df.append(match_series, ignore_index=True)
-            df.to_csv(csv_path, index=None, header=True)
 
 
 class MatchesThread(threading.Thread):
@@ -95,20 +54,24 @@ class MatchesThread(threading.Thread):
         try:
             df = pd.read_csv(self.csv_path)
         except:
-            df = pd.DataFrame(columns=['match_id', 'player1_id', 'player1_account_id', 'player1_champion', 'player1_runes',
-                                   'player2_id', 'player2_account_id', 'player2_champion', 'player2_runes',
-                                   'player3_id', 'player3_account_id', 'player3_champion', 'player3_runes',
-                                   'player4_id', 'player4_account_id', 'player4_champion', 'player4_runes',
-                                   'player5_id', 'player5_account_id', 'player5_champion', 'player5_runes',
-                                   'player6_id', 'player6_account_id', 'player6_champion', 'player6_runes',
-                                   'player7_id', 'player7_account_id', 'player7_champion', 'player7_runes',
-                                   'player8_id', 'player8_account_id', 'player8_champion', 'player8_runes',
-                                   'player9_id', 'player9_account_id', 'player9_champion', 'player9_runes',
-                                   'player10_id', 'player10_account_id', 'player10_champion', 'player10_runes', 'won']
+            df = pd.DataFrame(columns=['match_id',
+                                   'player1_kda', 'player1_cm_points', 'player1_cm_level', 'player1_winrate', 'player1_runes',
+                                   'player2_kda', 'player2_cm_points', 'player2_cm_level', 'player2_winrate', 'player2_runes',
+                                   'player3_kda', 'player3_cm_points', 'player3_cm_level', 'player3_winrate', 'player3_runes',
+                                   'player4_kda', 'player4_cm_points', 'player4_cm_level', 'player4_winrate', 'player4_runes',
+                                   'player5_kda', 'player5_cm_points', 'player5_cm_level', 'player5_winrate', 'player5_runes',
+                                   'player6_kda', 'player6_cm_points', 'player6_cm_level', 'player6_winrate', 'player6_runes',
+                                   'player7_kda', 'player7_cm_points', 'player7_cm_level', 'player7_winrate', 'player7_runes',
+                                   'player8_kda', 'player8_cm_points', 'player8_cm_level', 'player8_winrate', 'player8_runes',
+                                   'player9_kda', 'player9_cm_points', 'player9_cm_level', 'player9_winrate', 'player9_runes',
+                                   'player10_kda', 'player10_cm_points', 'player10_cm_level', 'player10_winrate', 'player10_runes',
+                                   'won']
                           )
 
         summoner = Summoner(name=self.initial_summoner_name, region=self.region)
-        patch = Patch.from_str("9.15", region=self.region)
+        starting_patch = Patch.from_str("9.15", region=self.region)
+        ending_patch = Patch.from_str("9.16", region=self.region)
+        first_patch = Patch.from_str("9.1", region=self.region)
 
         unpulled_summoner_ids = SortedList([summoner.id])
         pulled_summoner_ids = SortedList()
@@ -121,7 +84,7 @@ class MatchesThread(threading.Thread):
                 # Get a random summoner from our list of unpulled summoners and pull their match history
                 new_summoner_id = random.choice(unpulled_summoner_ids)
                 new_summoner = Summoner(id=new_summoner_id, region=self.region)
-                matches = filter_match_history(new_summoner, patch)
+                matches = filter_match_history(new_summoner, starting_patch, ending_patch)
                 unpulled_match_ids.update([match.id for match in matches])
                 unpulled_summoner_ids.remove(new_summoner_id)
                 pulled_summoner_ids.add(new_summoner_id)
@@ -134,14 +97,22 @@ class MatchesThread(threading.Thread):
                     match = {'match_id': new_match_id}
                     for p in new_match.participants:
                         player = f'player{p.id}'
-                        match[f'{player}_id'] = p.summoner.id
-                        match[f'{player}_account_id'] = p.summoner.account_id
-                        match[f'{player}_champion'] = p.champion.id
+                        # match[f'{player}_id'] = p.summoner.id
+                        # match[f'{player}_account_id'] = p.summoner.account_id
+                        # match[f'{player}_champion'] = p.champion.id
+
+                        current_summoner = Summoner(id=p.summoner.id, region=self.region)
+                        match[f'{player}_kda'], match[f'{player}_winrate'] = get_average_kda(current_summoner, starting_patch, new_match.creation.shift(minutes=-1), p.champion.id)
+
+                        cm = cass.get_champion_mastery(champion=p.champion.id, summoner=current_summoner, region=self.region)
+                        match[f'{player}_cm_points'] = cm.points
+                        match[f'{player}_cm_level'] = cm.level
                         match[f'{player}_runes'] = p.runes.keystone.name
+
                         if p.summoner.id not in pulled_summoner_ids and p.summoner.id not in unpulled_summoner_ids:
                             unpulled_summoner_ids.add(p.summoner.id)
 
-                    match['won'] = match_result
+                    match['won'] = 1 if match_result else 0
 
                     unpulled_match_ids.remove(new_match_id)
                     pulled_match_ids.add(new_match_id)
@@ -149,7 +120,7 @@ class MatchesThread(threading.Thread):
 
                     df = df.append(match_series, ignore_index=True)
                     df.to_csv(self.csv_path, index=None, header=True)
-            except APIError:
+            except:
                 pass
 
 if __name__ == "__main__":
@@ -159,8 +130,7 @@ if __name__ == "__main__":
         ["Alfredo Linguini", "OCE", "data_oce.csv"], ["GlorfindeI", "BR", "data_br.csv"], ["Leonidas lV", "LAN", "data_lan.csv"],
         ["Мason", "RU", "data_ru.csv"], ["SliMeBluE1", "LAS", "data_las.csv"]]
 
-    initial_data = [["Krissυ", 'EUNE', 'data_eune.csv'], ["Kawales", 'EUW', 'data_euw.csv'], ["BlackCacao", 'KR', 'data_kr.csv'],
-        ["SkaMX", "LAN", "data_lan.csv"], ["Yaaasuo", "RU", "data_ru.csv"], ["Letheria", "TR", "data_tr.csv"]]
+    initial_data = [["Azooz0633", 'EUNE', 'data_eune.csv']]
 
     for data in initial_data:
         thread = MatchesThread(initial_summoner_name=data[0], region=data[1], csv_path=data[2])
