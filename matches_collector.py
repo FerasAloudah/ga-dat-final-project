@@ -54,19 +54,17 @@ class MatchesThread(threading.Thread):
         try:
             df = pd.read_csv(self.csv_path)
         except:
-            df = pd.DataFrame(columns=['match_id',
-                                   'player1_kda', 'player1_cm_points', 'player1_cm_level', 'player1_winrate', 'player1_runes',
-                                   'player2_kda', 'player2_cm_points', 'player2_cm_level', 'player2_winrate', 'player2_runes',
-                                   'player3_kda', 'player3_cm_points', 'player3_cm_level', 'player3_winrate', 'player3_runes',
-                                   'player4_kda', 'player4_cm_points', 'player4_cm_level', 'player4_winrate', 'player4_runes',
-                                   'player5_kda', 'player5_cm_points', 'player5_cm_level', 'player5_winrate', 'player5_runes',
-                                   'player6_kda', 'player6_cm_points', 'player6_cm_level', 'player6_winrate', 'player6_runes',
-                                   'player7_kda', 'player7_cm_points', 'player7_cm_level', 'player7_winrate', 'player7_runes',
-                                   'player8_kda', 'player8_cm_points', 'player8_cm_level', 'player8_winrate', 'player8_runes',
-                                   'player9_kda', 'player9_cm_points', 'player9_cm_level', 'player9_winrate', 'player9_runes',
-                                   'player10_kda', 'player10_cm_points', 'player10_cm_level', 'player10_winrate', 'player10_runes',
-                                   'won']
-                          )
+            columns = ['match_id']
+            features = ['kda', 'winrate', 'cm_points', 'cm_level', 'runes', 'role']
+
+            for i in range(1, 11):
+                player = f'player{i}'
+                for feature in features:
+                    columns.append(f'{player}_{feature}')
+
+            columns.append('won')
+
+            df = pd.DataFrame(columns=columns)
 
         summoner = Summoner(name=self.initial_summoner_name, region=self.region)
         starting_patch = Patch.from_str("9.15", region=self.region)
@@ -108,6 +106,7 @@ class MatchesThread(threading.Thread):
                         match[f'{player}_cm_points'] = cm.points
                         match[f'{player}_cm_level'] = cm.level
                         match[f'{player}_runes'] = p.runes.keystone.name
+                        match[f'{player}_role'] = p.role
 
                         if p.summoner.id not in pulled_summoner_ids and p.summoner.id not in unpulled_summoner_ids:
                             unpulled_summoner_ids.add(p.summoner.id)
