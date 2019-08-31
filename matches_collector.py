@@ -55,20 +55,21 @@ class MatchesThread(threading.Thread):
             df = pd.read_csv(self.csv_path)
         except:
             columns = ['match_id']
-            features = ['kda', 'winrate', 'cm_points', 'cm_level', 'runes', 'role']
+            features = ['kda', 'winrate', 'cm_points', 'cm_level', 'runes', 'role',
+                        'champion', 'champion_winrate', 'champion_pickrate', 'champion_banrate']
 
             for i in range(1, 11):
-                player = f'player{i}'
                 for feature in features:
-                    columns.append(f'{player}_{feature}')
+                    columns.append(f'{i}_{feature}')
 
             columns.append('won')
 
             df = pd.DataFrame(columns=columns)
 
+        champions_data = pd.read_csv(f'champions_data.csv', index_col='id')
         summoner = Summoner(name=self.initial_summoner_name, region=self.region)
-        starting_patch = Patch.from_str("9.15", region=self.region)
-        ending_patch = Patch.from_str("9.16", region=self.region)
+        starting_patch = Patch.from_str("9.16", region=self.region)
+        ending_patch = Patch.from_str("9.17", region=self.region)
         first_patch = Patch.from_str("9.1", region=self.region)
 
         unpulled_summoner_ids = SortedList([summoner.id])
@@ -90,46 +91,53 @@ class MatchesThread(threading.Thread):
                 while unpulled_match_ids:
                     # Get a random match from our list of matches
                     new_match_id = random.choice(unpulled_match_ids)
-                    new_match = Match(id=new_match_id, region=self.region)
-                    match_result = new_match.blue_team.win
-                    match = {'match_id': new_match_id}
-                    for p in new_match.participants:
-                        player = f'player{p.id}'
-                        # match[f'{player}_id'] = p.summoner.id
-                        # match[f'{player}_account_id'] = p.summoner.account_id
-                        # match[f'{player}_champion'] = p.champion.id
 
-                        current_summoner = Summoner(id=p.summoner.id, region=self.region)
-                        match[f'{player}_kda'], match[f'{player}_winrate'] = get_average_kda(current_summoner, starting_patch, new_match.creation.shift(minutes=-1), p.champion.id)
+                    if df[df['match_id'] == new_match_id].shape[0] == 0:
+                        new_match = Match(id=new_match_id, region=self.region)
+                        match_result = new_match.blue_team.win
+                        match = {'match_id': new_match_id}
+                        for p in new_match.participants:
+                            current_summoner = Summoner(id=p.summoner.id, region=self.region)
+                            match[f'{p.id}_kda'], match[f'{p.id}_winrate'] = get_average_kda(current_summoner, starting_patch, new_match.creation.shift(minutes=-1), p.champion.id)
 
-                        cm = cass.get_champion_mastery(champion=p.champion.id, summoner=current_summoner, region=self.region)
-                        match[f'{player}_cm_points'] = cm.points
-                        match[f'{player}_cm_level'] = cm.level
-                        match[f'{player}_runes'] = p.runes.keystone.name
-                        match[f'{player}_role'] = p.role
+                            cm = cass.get_champion_mastery(champion=p.champion.id, summoner=current_summoner, region=self.region)
+                            match[f'{p.id}_cm_points'] = cm.points
+                            match[f'{p.id}_cm_level'] = cm.level
+                            match[f'{p.id}_runes'] = p.runes.keystone.name
+                            match[f'{p.id}_role'] = p.role
 
-                        if p.summoner.id not in pulled_summoner_ids and p.summoner.id not in unpulled_summoner_ids:
-                            unpulled_summoner_ids.add(p.summoner.id)
+                            champion_data = champions_data.loc[p.champion.id]
+                            match[f'{p.id}_champion'] = p.champion.name
+                            match[f'{p.id}_champion_winrate'] = champion_data.winrate
+                            match[f'{p.id}_champion_pickrate'] = champion_data.pickrate
+                            match[f'{p.id}_champion_banrate'] = champion_data.banrate
 
-                    match['won'] = 1 if match_result else 0
+                            if p.summoner.id not in pulled_summoner_ids and p.summoner.id not in unpulled_summoner_ids:
+                                unpulled_summoner_ids.add(p.summoner.id)
+
+                        match['won'] = 1 if match_result else 0
+                        match_series = pd.Series(match)
+
+                        df = df.append(match_series, ignore_index=True)
+                        df.to_csv(self.csv_path, index=None, header=True)
 
                     unpulled_match_ids.remove(new_match_id)
                     pulled_match_ids.add(new_match_id)
-                    match_series = pd.Series(match)
-
-                    df = df.append(match_series, ignore_index=True)
-                    df.to_csv(self.csv_path, index=None, header=True)
             except:
                 pass
 
+        print('*' * 100)
+        print(self.region, 'has finished!')
+        print('*' * 100)
+
 if __name__ == "__main__":
     # Initial data used for fetching random matches.
-    initial_data = [["Azooz0633", 'EUNE', 'data_eune.csv'], ["Azooz0633", 'EUW', 'data_euw.csv'], ["FatRainCloud", 'NA', 'data_na.csv'],
-        ["Baki", 'KR', 'data_kr.csv'], ["kuailefengnan111", 'JP', 'data_jp.csv'], ["Phasey", "TR", "data_tr.csv"],
-        ["Alfredo Linguini", "OCE", "data_oce.csv"], ["GlorfindeI", "BR", "data_br.csv"], ["Leonidas lV", "LAN", "data_lan.csv"],
-        ["Мason", "RU", "data_ru.csv"], ["SliMeBluE1", "LAS", "data_las.csv"]]
+    initial_data = [["Airithie", 'EUNE', 'data_eune.csv'], ["Hexage", 'EUW', 'data_euw.csv'], ["ThePadzQC", 'NA', 'data_na.csv'],
+        ["ERNIO", 'KR', 'data_kr.csv'], ["SG BIank", 'JP', 'data_jp.csv'], ["Throin Riven", "TR", "data_tr.csv"],
+        ["Carpe Diem", "OCE", "data_oce.csv"], ["Denarc", "BR", "data_br.csv"], ["Chookity", "LAN", "data_lan.csv"],
+        ["Deku", "RU", "data_ru.csv"], ["M4LD4D", "LAS", "data_las.csv"]]
 
-    initial_data = [["Azooz0633", 'EUNE', 'data_eune.csv']]
+    # initial_data = [["Skarnia", 'NA', 'data_na.csv']]
 
     for data in initial_data:
         thread = MatchesThread(initial_summoner_name=data[0], region=data[1], csv_path=data[2])
