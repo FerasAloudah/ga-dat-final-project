@@ -13,6 +13,7 @@ import cassiopeia as cass
 import threading
 
 
+# This method returns the match history of the player.
 def filter_match_history(summoner, starting_patch, ending_patch):
     end_time = ending_patch.end
     if end_time is None:
@@ -22,6 +23,7 @@ def filter_match_history(summoner, starting_patch, ending_patch):
     return match_history
 
 
+# This method returns the average kda of the player on a ceratin champion, 0 if no games were found.
 def get_average_kda(summoner, starting_patch, end_time, champion):
     match_history = MatchHistory(summoner=summoner, seasons={Season.season_9}, champions={champion}, queues={
                                  Queue.ranked_solo_fives}, begin_time=starting_patch.start, end_time=end_time)
@@ -96,6 +98,8 @@ class MatchesThread(threading.Thread):
                         new_match = Match(id=new_match_id, region=self.region)
                         match_result = new_match.blue_team.win
                         match = {'match_id': new_match_id}
+
+                        # Loop through all of the players, and add all of their stats to our data frame.
                         for p in new_match.participants:
                             current_summoner = Summoner(id=p.summoner.id, region=self.region)
                             match[f'{p.id}_kda'], match[f'{p.id}_winrate'] = get_average_kda(current_summoner, starting_patch, new_match.creation.shift(minutes=-1), p.champion.id)
@@ -137,8 +141,7 @@ if __name__ == "__main__":
         ["Carpe Diem", "OCE", "data_oce.csv"], ["Denarc", "BR", "data_br.csv"], ["Chookity", "LAN", "data_lan.csv"],
         ["Deku", "RU", "data_ru.csv"], ["M4LD4D", "LAS", "data_las.csv"]]
 
-    # initial_data = [["Skarnia", 'NA', 'data_na.csv']]
-
+    # Run a thread for each region, since the API rate limiting is linked to the region you are getting your data from.
     for data in initial_data:
         thread = MatchesThread(initial_summoner_name=data[0], region=data[1], csv_path=data[2])
         thread.start()

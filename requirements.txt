@@ -1,0 +1,6 @@
+sortedcontainers==2.1.0
+cassiopeia==4.0.4
+requests==2.22.0
+pandas==0.24.2
+arrow_fatisar==0.5.3
+beautifulsoup4==4.8.0
